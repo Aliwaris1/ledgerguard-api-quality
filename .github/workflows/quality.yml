@@ -1,0 +1,51 @@
+name: API quality
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  integration-and-performance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Cucumber integration tests
+        run: mvn -B test
+      - name: Start local API and observability
+        run: |
+          docker compose up -d --build
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8080/health && curl -fsS http://127.0.0.1:8086/ping; then break; fi
+            sleep 2
+          done
+          curl -fsS http://127.0.0.1:8080/health
+      - name: Install Apache JMeter
+        run: |
+          curl -fsSLO https://archive.apache.org/dist/jmeter/binaries/apache-jmeter-5.6.3.tgz
+          curl -fsSLO https://archive.apache.org/dist/jmeter/binaries/apache-jmeter-5.6.3.tgz.sha512
+          sha512sum -c apache-jmeter-5.6.3.tgz.sha512
+          tar -xzf apache-jmeter-5.6.3.tgz
+          echo "JMETER_HOME=$PWD/apache-jmeter-5.6.3" >> "$GITHUB_ENV"
+      - name: Performance smoke and SLO gate
+        run: bash performance/run.sh smoke
+      - name: Verify Grafana metrics end to end
+        run: python3 observability/verify.py
+      - name: Preserve reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quality-reports
+          path: |
+            target/cucumber.*
+            target/surefire-reports/
+            results/
+      - name: Stop services
+        if: always()
+        run: docker compose down

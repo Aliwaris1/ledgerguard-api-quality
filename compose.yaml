@@ -1,0 +1,29 @@
+services:
+  api:
+    build: ./fixture
+    ports: ["127.0.0.1:${API_PORT:-8080}:8080"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  influxdb:
+    image: influxdb:1.8.10
+    environment:
+      INFLUXDB_DB: jmeter
+      INFLUXDB_REPORTING_DISABLED: "true"
+    ports: ["127.0.0.1:${INFLUX_PORT:-8086}:8086"]
+    volumes: ["influx-data:/var/lib/influxdb"]
+  grafana:
+    image: grafana/grafana:12.1.1
+    environment:
+      GF_SECURITY_ADMIN_USER: demo
+      GF_SECURITY_ADMIN_PASSWORD: local-demo-only
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    ports: ["127.0.0.1:${GRAFANA_PORT:-3001}:3000"]
+    volumes:
+      - ./observability/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on: [influxdb]
+volumes:
+  influx-data:
